@@ -1,0 +1,380 @@
+---
+title: "MAS202: Final project on housing prices in Iceland 2008-2018"
+author: "Nattapat and Zare"
+output: 
+  rmdformats::readthedown:
+      self_contained: true
+      thumbnails: true
+      lightbox: true  
+      gallery:  false
+      hlighlight: tango
+---
+# Part 1: Clean the data
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+Data=read.csv("https://www.skra.is/library/Samnyttar-skrar-/Fyrirtaeki-stofnanir/Fasteignamat-2019/gagnasafn_ib_2018.csv",sep = ";",fileEncoding="latin1", na.strings = "(null)")
+dim(Data)
+Data=na.omit(Data)#remove missing values
+```
+
+We can see that the dataset has `49777` observations and `53` variables.
+We use the variables which is suggested. \
+`netto area` is similar to area of property so, we discarded it along with `circumference`. Finally, we have all the information we considered to be sufficient to progress our part 1 cleaning data. \
+`ibteg` and `teg_eign` carry on the same information so I consider `teg_egin`. \
+`Property id` is irrelevant. So, should be removed. \
+`storage rooms` is also removed, since we have `storage room area` variable. \
+ 
+```{r warning = FALSE, message=FALSE}
+C1=c("kdagur","nuvirdi", "teg_eign", "svfn", "byggar", "efstah", "fjmib", "lyfta","ibm2","fjhaed","fjbilsk","fjbkar", "fjsturt" , "fjklos","fjeld", "fjherb","fjstof", "stig10", "bilskurm2", "svalm2", "geymm2", "matssvaedi", "undirmatssvaedi")
+```
+
+We set the condition on our data contains only capital area, `svfn<1606`, with only residential housing. Excluding, `Hotels`, `Gust-houses`, `Offices`, and `illegal apartment`.\
+
+Since `Fjölbýlishús`, `Íbúðareign` and `Íbúðarhús` introduce the same object. So, we named `Íbúðareign`, apartment, for all of the three variables.
+
+```{r warning = FALSE, message=FALSE}
+Data$ibm2=as.numeric(gsub(",",".",Data$ibm2))
+
+Datasub=subset(Data, select = C1) 
+Datasub$svalm2=as.numeric(gsub(",",".",Datasub$svalm2))
+Datasub$geymm2=as.numeric(gsub(",",".",Datasub$geymm2))
+Datasub$bilskurm2=as.numeric(gsub(",",".",Datasub$bilskurm2))
+Datasub$stig10=as.integer(Datasub$stig10)
+Datasub=na.omit(Datasub)
+Datasub %>% summary()
+
+library(psych)
+
+summary(Datasub$teg_eign)
+Datasub$teg_eign=fct_collapse(Datasub$teg_eign, 
+                              Íbúðareign = c("Fjölbýlishús", "Íbúðareign", "Íbúðarhús"),
+                              notimport=c("Herbergi", "Hótelstarfsemi", "Ósamþykkt íbúð","Séreign","Vinnustofa" ))
+
+Datasub=subset(Datasub, teg_eign!="notimport")
+
+boxplot(Datasub$fjstof)
+boxplot(Datasub$efstah)
+# number of the living room should be less than 5.
+Datasub=filter(Datasub, Datasub$efstah< 8 &  Datasub$fjeld<3 &  Datasub$fjstof<5 & Datasub$svfn<1606 & Datasub$fjbkar<3)
+```
+
+We replaced numbers with names of capital area and discard real estates outside the capital area. Our data is left with real estate within the capital area.
+```{r warning = FALSE, message=FALSE}
+# Changing these variables into a factor and rename them.
+levels(as.factor(Datasub$svfn))
+Datasub$svfn<-fct_recode(as.factor(Datasub$svfn),
+  Reykjavík = "0",
+  Kópavogur = "1000",
+  Seltjarnarnes = "1100",
+  Garðabær = "1300",
+  Hafnarfjörður = "1400",
+  Mosfellsbær = "1604",
+  Kjósarhreppur= "1606"
+)
+levels(Datasub$svfn)
+```
+
+We check correlation with correlation plot, `ggcorr`, on all explanatory variables in our `Datasub` that we have cleaned against our response, `nuvirdi`, which is the price of the properties.
+
+```{r warning=FALSE, message=FALSE}
+library(GGally)
+ggcorr(Datasub,label=T, label_size = 2)
+#ggcorr(Datasub,label=T, label_size = 3, palette = "RdBu",geom = "circle", nbreaks = 5)
+```
+
+The variable `nuvirdi` has no relation with `stig10` and `efstah`. But `ibm2` has the **highest** correlation with `nuvirdi`.\
+
+Since data in column(s) `kdagur`, `teg_eign`, and `svfn` are logistic. So, they were ignored. We will look at them in a different plot. \
+
+# 2. Construct descriptive plots. 
+```{r warning=FALSE, message=FALSE}
+ggplot(Datasub) + geom_boxplot(mapping=aes(x=teg_eign, y=nuvirdi)) + 
+  labs(x="type of properties", y="nuvirdi = price")
+# It is not clear because there is a point outside of range which seems to be error, if it is error we have to remove it and repeat ggplot.
+
+Datasub[which.max(Datasub$nuvirdi),]#It is a error.
+
+#therefore, we removed the outlier of our data set.
+#Now, the Datasub is more robust.
+Datasub=Datasub[-which.max(Datasub$nuvirdi),]
+ggplot(Datasub)+geom_boxplot(mapping=aes(x=teg_eign, y=nuvirdi))+scale_y_continuous( limits=c(0, 200000)) + 
+  labs(x="type of properties", y="nuvirdi = price")
+```
+
+**comment**: The boxplot shows that there is one outlier in the `íbúðareign`. We removed it and re-plot the plotbox. The plotbox results in more consistant plot.
+
+Plot the to see the relationship between `nuvirdi` and type of properties.
+```{r warning=FALSE, message=FALSE}
+ggplot(Datasub) + 
+  geom_density(aes(x=nuvirdi , col=teg_eign)) + 
+  scale_x_continuous(limits=c(0, 100000)) +
+  labs(x="nuvirdi = price", col="type of properties", title = "Relationship between numbers of properties and price")
+# According to the graph and boxplot, Apartments are cheaper 
+```
+
+**comments**: According to the graph and boxplot, many apartments are relatively cheaper than all other type of properties. While `Einbýlishús` is the most expensive, but `parhús` and `raðhús` are similarly priced. We also note that `íbúðareign` is the most affordable and the price is relatively low compares to other type of properties with high numbers of sales.\
+
+Let us see the relationship between price and Year.\
+```{r message=FALSE, warning=FALSE}
+Datasub$year<-as.factor(as.integer(substr(Datasub$kdagur,7,10)))
+ggplot(Datasub)+geom_boxplot(mapping=aes(x=year, y=nuvirdi)) + scale_y_continuous(limits=c(0, 250000)) + 
+  labs(x="year", y="nuvirdi = price", title="price of the property with year")
+# price has an increasing trade respect to years. 
+```
+
+**comments**: From boxplot without the outliers, we can see the relationship on the price and year is linear and the price increases with years.\
+
+Firstly, we will take a look at average price of each type of properties and how many of them are solds each year in each type of the properties. Secondly, we will make a plot of the table to visualise the relationship of number in each type of properties sold and price of each type of properties sold.
+```{r warning = FALSE, message = FALSE}
+library(dplyr)
+Group=group_by(Datasub[,c(2,3,24)], year,teg_eign)
+count(Group)  %>% tibble()
+dplyr::summarise(Group,avg_price=mean(nuvirdi) ,.groups = 'drop')%>%
+ggplot(mapping=aes(x=year, y=avg_price, col=teg_eign, group = teg_eign))+ geom_point() + geom_line()
+```
+
+**comments**: This graph shows us the price increases of each type of property from year 2012-2018. Since, there are few observations in 2018, the increase in price from 2017-2018 is not consistent compare to the year 2012-2017 i.e. `Seltjarnarnes` has no sales recored in 2018 and `Mosfellsbaer` sales are not consisist with the previous years and the year before..\ 
+
+Now, average price of each $m^2$ area of properties in different area of the city over the years is investigated. 
+```{r warning = FALSE, message = FALSE}
+Datasub$pom2=(Datasub$nuvirdi)/(Datasub$ibm2)
+Group1=group_by(Datasub[,c(3,4,24,25)], year,teg_eign, svfn)
+count(Group1)
+dplyr::summarise(Group1,avg_price.omsq=mean(pom2) ,.groups = 'drop')%>%
+ggplot(mapping=aes(x=year, y=avg_price.omsq, col=teg_eign, group = teg_eign)) + geom_point() + geom_line() + labs(x="Year", y="Avg of price per m2", fill="City")+facet_wrap(~svfn)
+```
+
+# 3 Predict sale prices *nuvirdi*.
+
+Let us split data into `test` and `train` data.\
+We have used **Tree**, **Random Forest**, **Bagging**, **Boosting**, and **Lasso** methods.\
+
+# Tree method
+
+Regression tree analysis of the data and the unprunned tree.\
+The results from top-down greedy splitting on the training data will shown.\
+
+We use the `rpart.plot` package, but tree in this package is already pruned. So, we do not need to use the `cv.tree` function to find the cross-validation and finding the best Knot then prune the tree.\    
+
+```{r warning = FALSE, message = FALSE}
+Datasub=na.omit(Datasub)
+library(rpart.plot)
+library(tree)
+set.seed(1)
+train=sample(1:nrow(Datasub),0.8*nrow(Datasub))
+trainset=Datasub[train,-c(1,25)]
+testset=Datasub[-train,-c(1,25)]
+
+tree.method=rpart(nuvirdi~., data = trainset)
+summary(tree.method)
+tree.pred=predict(tree.method,testset)
+MeanE=sqrt(mean((tree.pred-testset$nuvirdi)^2))
+MeanE
+rpart.plot(tree.method, main="prune Tree")
+```
+
+*comment*:\
+
+**Random Forests**:\
+Random Forests is better than bagging because it is *decorrelating* the trees.\
+Random forests forced each split to consider only a subset of the predictors, so other less moderate predictors are also consider(instead of only consider strong predictors.) $m=\sqrt{p}$\
+
+# Random Forest
+```{r warning = FALSE, message = FALSE}
+library (randomForest)
+set.seed(2)
+RandF.method=randomForest(nuvirdi~.,data=trainset,importance =TRUE, na.action=na.roughfix)
+RF.pred=predict(RandF.method,newdata=testset)
+RFE=sqrt(mean((RF.pred -testset$nuvirdi)^2))
+RFE
+plot(RF.pred , testset$nuvirdi)+abline(0,1)
+varImpPlot(RandF.method, main = "Importance")
+# random forest gets smaller error.
+```
+
+**Bagging** is built on bootstrapped training samples, considered, *a random sample of m predictors* is chosen as split canditade from the full set of $m$ predictors. Bagging will use the strong predictor in the top split and the tree will be highly correlated. Resulting in high variance. $m = p$.\
+
+Using `mtry=22` in the **Bagging** method.\
+# Bagging method
+```{r warning = FALSE, message = FALSE}
+library (randomForest)
+set.seed(2)
+Bagbing.method=randomForest(nuvirdi~.,data=trainset,mtry=22 ,importance =TRUE, na.action=na.roughfix)
+bag.pred=predict(Bagbing.method,newdata=testset)
+BagE=sqrt(mean((bag.pred -testset$nuvirdi)^2))
+BagE
+plot(bag.pred , testset$nuvirdi)+abline(0,1)
+varImpPlot(Bagbing.method, main = "Importance")
+# randomforest gets smaller error.
+```
+
+
+**Boosting** : \
+Boosting works in a similar way, except that the trees are grown sequentially: each tree is grown using information from previously grown trees. Boosting does not involve bootstrap sampling; instead each tree is fit on a modified version of the original data set.\
+
+# Boosting
+```{r warning = FALSE, message = FALSE}
+library(gbm)
+set.seed(3)
+Lambda <- c( seq(0.02, 0.1, by=0.01),seq(0.2, 1, by=0.1))
+train.err=rep(NA, length(Lambda))
+for (i in 1:length(Lambda)) {
+  boost.dat=gbm(nuvirdi~.,data=trainset, distribution="gaussian", n.trees =1000 , interaction.depth =4, shrinkage=Lambda[i])
+   pred.dat = predict(boost.dat, testset, n.trees = 1000)
+   train.err[i] = sqrt(mean((pred.dat - testset$nuvirdi)^2))
+}
+plot(Lambda, train.err, type = "b", xlab = "Shrinkage values", ylab = "Test E")
+BostE=min(train.err)
+BostE
+Lambda[which.min(train.err)]
+boost.best=gbm(nuvirdi~.,data=trainset, distribution="gaussian", n.trees =1000 , interaction.depth =4, shrinkage=Lambda[which.min(train.err)])
+summary(boost.best)
+```
+
+Random Forest and Bagging and Boosting have similar error but boosting has the smallest  error.  Boosting is the best model with the least MSE. \
+
+# Lasso
+```{r warning = FALSE, message = FALSE}
+x=model.matrix(nuvirdi~.,Datasub[,-c(1,25)])[,-2]
+y=Datasub$nuvirdi
+library(glmnet)
+grid =10^seq (10,-2, length =100)
+lasso.mod =glmnet(x[train ,],y[train],alpha =1, lambda =grid)
+plot(lasso.mod)
+set.seed(5)
+cv.out =cv.glmnet (x[train ,],y[train],alpha =1)
+plot(cv.out)
+bestlam =cv.out$lambda.min
+bestlam 
+lasso.pred=predict(lasso.mod ,s=bestlam ,newx=x[-train ,])
+LasoE=sqrt(mean(( lasso.pred -y[-train])^2))
+```
+
+# 4. Predict the values of a categorical variable\
+
+```{r warning = FALSE, message = FALSE}
+tree_comp<-data.frame(rbind(random_forest = RFE,
+           Tree_Error = MeanE,
+           Bagging_Error=BagE,
+           Boosting_Error= BostE,
+           Lasso_Error = LasoE))
+
+colnames(tree_comp)<-"Estimated_prediction_error"
+library(kableExtra)  
+kable(tree_comp) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = T)
+```
+
+We have to remove the `location` because of dependency of `svfn` and `location`.\
+We chose location from `svfn` to be `Kópavogur` and `Hafnarfjörður`. Since, they have intersection of areas around them.\
+
+Create dataset and split our data.\
+```{r warning = FALSE, message = FALSE}
+set.seed(7)
+newsub = filter(Datasub[,-c(1,22:25)], svfn == "Kópavogur" | svfn == "Hafnarfjörður")
+newsub$svfn = factor(newsub$svfn)
+newsub = na.omit(newsub)
+
+split= sample(1:nrow(newsub), nrow(newsub)*0.8)
+trainnew = newsub[split,]
+testnew = newsub[-split,]
+```
+
+**Bagging**
+
+```{r}
+library(randomForest)
+fit_R.forest = randomForest(svfn ~ ., trainnew, mtry = 7, importance = TRUE )
+fit_R.forest
+```
+
+Prediction of **Bagging** model.
+We use `importance` to view the importance of each variable and then plot the importance measures with `varImpPlot`.
+```{r warning = FALSE, message = FALSE}
+pred_R.forest = predict(fit_R.forest, testnew)
+cm_R.forest = table(pred_R.forest, testnew$svfn)
+cm_R.forest
+RFEr=mean(pred_R.forest!=testnew$svfn)
+RFEr
+importance(fit_R.forest)
+varImpPlot(fit_R.forest)
+```
+
+**Support Vector Machine (SVM)**\
+using `kernel=radial` method.\
+
+```{r warning = FALSE, message = FALSE}
+library(e1071)
+svmfit =svm(svfn~., data=trainnew, kernel ="radial", gamma =1, cost =1)
+summary(svmfit)
+tune.out=tune(svm ,svfn~.,data=trainnew ,kernel ="radial", ranges =list(cost=c( 0.01, 0.1, 1,5,10,100) ))
+summary(tune.out)
+# best model is cost=5
+bestmod =tune.out$best.model
+summary(bestmod)
+ypred=predict(bestmod ,testnew )
+table(predict =ypred , truth= testnew$svfn )
+SVME=mean(ypred!= testnew$svfn)
+SVME
+```
+
+# Bonus
+
+**Boosting** method to predict 2019-2020 by using data from 2012-2018 (train data). \
+Check our prediction with the real data on 2019-2020 (test data). We made some adjustments on columns of train data and test data. Since, the information was not the same. \
+
+```{r warning = FALSE, message = FALSE}
+Datasubn=Datasub
+Datasubn$teg_eign=fct_collapse(Datasubn$teg_eign, 
+                              notimport=c( "Einbýlishús","Raðhús","Parhús" ))
+
+C3=c("ibm2","year","matssvaedi","byggar", "bilskurm2","undirmatssvaedi", "geymm2","svalm2","fjsturt","fjbilsk","nuvirdi")
+Datasubn=subset(Datasubn, teg_eign!="notimport")
+Datasubn=Datasubn[,C3]
+library(openxlsx)
+
+dat_2020<- read.xlsx("https://www.skra.is/library/Samnyttar-skrar-/Fyrirtaeki-stofnanir/Fasteignamat-2020/gagnasafn_netid.xlsx", colNames = T, na.strings = "(null)", sheet = "Fjölbýli höfuðborg")
+
+dat_2020$age_studull=2019-dat_2020$age_studull
+dat_2020=rename(dat_2020, byggar="age_studull", year="ar", matssvaedi="hverfi", undirmatssvaedi="gata", fjsturt="bath_fixtures")
+dat_2020=dat_2020[,C3]
+dat_2020$ibm2=as.numeric(gsub(",",".",dat_2020$ibm2))
+dat_2020$geymm2=as.numeric(gsub(",",".",dat_2020$geymm2))
+dat_2020$svalm2=as.numeric(gsub(",",".",dat_2020$svalm2))
+dat_2020$bilskurm2=as.numeric(gsub(",",".",dat_2020$bilskurm2))
+dat_2020=na.omit(dat_2020)
+set.seed(11)
+boost.Datan=gbm(nuvirdi~.,Datasubn, distribution="gaussian", n.trees =1000 , interaction.depth =4, shrinkage=.1)
+pred.boost=predict(boost.Datan, dat_2020, n.trees = 1000)
+sqrt(mean((pred.boost-dat_2020$nuvirdi)^2))
+
+```
+
+The error from our prediction data of 2019-2020 was large. Therefore, we decided to predict only 2018(test data) from 2012-2017 data (train data). We then used this new test data (prediction data of 2018) to predict 2019-2020 data. 
+
+
+```{r warning = FALSE, message = FALSE}
+Datasub$year1=as.integer(substr(Datasub$kdagur,7,10))
+Datasubtrain=subset(Datasub, Datasub$year1<2018)[,-c(1,24)]
+Datasubtest=subset(Datasub, Datasub$year1==2018)[,-c(1,24)]
+boost.Datan2018=gbm(nuvirdi~.,Datasubtrain, distribution="gaussian", n.trees =1000 , interaction.depth =4, shrinkage=.1)
+pred.boost2018=predict(boost.Datan2018, Datasubtest, n.trees = 1000)
+sqrt(mean((pred.boost2018-Datasubtest$nuvirdi)^2))
+```
+
+```{r warning = FALSE, message = FALSE}
+Datasubtest$nuvirdi=pred.boost2018
+Datasetj=rbind(Datasubtrain,Datasubtest)
+Datasetj$teg_eign=fct_collapse(Datasetj$teg_eign, 
+                              notimport=c( "Einbýlishús","Raðhús","Parhús" ))
+
+
+Datasetj=subset(Datasetj, teg_eign!="notimport")
+Datasetj=rename(Datasetj,year="year1")
+Datasetj=Datasetj[,C3]
+boost.Datan2019=gbm(nuvirdi~.,Datasetj, distribution="gaussian", n.trees =1000 , interaction.depth =4, shrinkage=.1)
+pred.boost2019=predict(boost.Datan2019, dat_2020, n.trees = 1000)
+sqrt(mean((pred.boost2019-dat_2020$nuvirdi)^2))
+```
+
